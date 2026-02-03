@@ -1,0 +1,87 @@
+from django.core.management.base import BaseCommand
+from api.models import Meal
+
+class Command(BaseCommand):
+    help = 'Seed initial meals'
+
+    def handle(self, *args, **kwargs):
+        meals = [
+            {
+                "name": "Chicken Adobo",
+                "description": "Filipino chicken dish",
+                "calories": 450, "protein": 35, "carbs": 20, "fats": 25,
+                "is_vegetarian": False, "is_halal": True,
+                "image_url": "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d"
+            },
+            {
+                "name": "Vegetable Stir Fry",
+                "description": "Mixed vegetables sautéed",
+                "calories": 300, "protein": 10, "carbs": 40, "fats": 10,
+                "is_vegetarian": True, "is_halal": True,
+                "image_url": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c"
+            },
+            {
+                "name": "Grilled Fish",
+                "description": "Grilled tilapia",
+                "calories": 400, "protein": 30, "carbs": 0, "fats": 15,
+                "is_vegetarian": False, "is_halal": True,
+                "image_url": "https://images.unsplash.com/photo-1551183053-bf91a1d81141"
+            },
+            {
+                "name": "Egg Omelette",
+                "description": "Egg omelette",
+                "calories": 350, "protein": 18, "carbs": 5, "fats": 20,
+                "is_vegetarian": True, "is_halal": True,
+                "image_url": "https://images.unsplash.com/photo-1584270354949-1f36c1f26a8b"
+            },
+            {
+                "name": "Oatmeal with Fruits",
+                "description": "Oats with banana and apple",
+                "calories": 250, "protein": 8, "carbs": 45, "fats": 5,
+                "is_vegetarian": True, "is_halal": True,
+                "image_url": "https://images.unsplash.com/photo-1505253216365-6f7d2c8b3f7f"
+            },
+            {
+                "name": "Beef Steak",
+                "description": "Fried beef steak",
+                "calories": 600, "protein": 40, "carbs": 10, "fats": 35,
+                "is_vegetarian": False, "is_halal": False,
+                "image_url": "https://images.unsplash.com/photo-1600891964599-f61ba0e24092"
+            },
+            {
+                "name": "Tuna Sandwich",
+                "description": "Tuna with wheat bread",
+                "calories": 420, "protein": 25, "carbs": 30, "fats": 15,
+                "is_vegetarian": False, "is_halal": False,
+                "image_url": "https://images.unsplash.com/photo-1528735602780-2552fd46c7af"
+            },
+            {
+                "name": "Fruit Smoothie",
+                "description": "Mixed fruit smoothie",
+                "calories": 220, "protein": 5, "carbs": 50, "fats": 2,
+                "is_vegetarian": True, "is_halal": True,
+                "image_url": "https://images.unsplash.com/photo-1542444459-db5b1f9c7b92"
+            },
+            {
+                "name": "Grilled Chicken Breast",
+                "description": "Lean grilled chicken",
+                "calories": 380, "protein": 42, "carbs": 0, "fats": 8,
+                "is_vegetarian": False, "is_halal": True,
+                "image_url": "https://images.unsplash.com/photo-1604908554025-9fa4b7c9e984"
+            },
+            {
+                "name": "Vegetable Salad",
+                "description": "Fresh garden salad",
+                "calories": 200, "protein": 6, "carbs": 25, "fats": 5,
+                "is_vegetarian": True, "is_halal": True,
+                "image_url": "https://images.unsplash.com/photo-1555939594-58d7cb561ad1"
+            },
+        ]
+
+        for meal in meals:
+            Meal.objects.get_or_create(
+                name=meal["name"],
+                defaults=meal
+            )
+
+        self.stdout.write(self.style.SUCCESS("Meals seeded successfully"))
