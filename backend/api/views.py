@@ -7,6 +7,68 @@ from .models import MealFeedback, UserProfile
 from .models import Meal
 
 
+# Activity to activity level mapping
+ACTIVITY_LEVELS = {
+    # sedentary (little/no exercise)
+    "sitting": "sedentary",
+    "desk_work": "sedentary",
+    "office_job": "sedentary",
+    
+    # light (1-3 days light exercise)
+    "walking": "light",
+    "gentle_yoga": "light",
+    "casual_cycling": "light",
+    "stretching": "light",
+    
+    # moderate (3-4 days moderate exercise)
+    "jogging": "moderate",
+    "running": "moderate",
+    "swimming": "moderate",
+    "basketball": "moderate",
+    "soccer": "moderate",
+    "gym_workout": "moderate",
+    "dancing": "moderate",
+    "hiking": "moderate",
+    
+    # active (5-6 days intense exercise)
+    "sprinting": "active",
+    "crossfit": "active",
+    "competitive_sports": "active",
+    "weight_training": "active",
+    "martial_arts": "active",
+    
+    # very active (daily intense exercise)
+    "professional_athlete": "very_active",
+    "intense_daily_training": "very_active",
+    "construction_work": "very_active",
+}
+
+def get_activity_level_from_activities(activities_str):
+    """
+    Convert comma-separated activities to overall activity level.
+    Returns the highest activity level found.
+    """
+    if not activities_str:
+        return "sedentary"
+    
+    activities = [a.strip().lower() for a in activities_str.split(",") if a.strip()]
+    if not activities:
+        return "sedentary"
+    
+    level_hierarchy = {"sedentary": 0, "light": 1, "moderate": 2, "active": 3, "very_active": 4}
+    max_level = "sedentary"
+    max_level_value = 0
+    
+    for activity in activities:
+        level = ACTIVITY_LEVELS.get(activity, "moderate")  # default to moderate if unknown
+        level_value = level_hierarchy.get(level, 2)
+        if level_value > max_level_value:
+            max_level = level
+            max_level_value = level_value
+    
+    return max_level
+
+
 @api_view(['GET'])
 def health_check(request):
     return Response({
@@ -73,21 +135,39 @@ def login(request):
 
 @api_view(['PUT'])
 def update_profile(request, user_id):
+    data = request.data
     user = User.objects.get(id=user_id)
 
     profile, created = UserProfile.objects.get_or_create(user=user)
 
-    profile.age = request.data.get('age')
-    profile.gender = request.data.get('gender')
-    profile.height_cm = request.data.get('height_cm')
-    profile.weight_kg = request.data.get('weight_kg')
-    profile.activity_level = request.data.get('activity_level')
-
+    profile.age = data.get("age", profile.age)
+    profile.gender = data.get("gender", profile.gender)
+    profile.height_cm = data.get("height_cm", profile.height_cm)
+    profile.weight_kg = data.get("weight_kg", profile.weight_kg)
+    
+    # Handle activities - convert to activity level
+    activities_str = data.get("activities")
+    if activities_str:
+        profile.activities = activities_str
+        profile.activity_level = get_activity_level_from_activities(activities_str)
+    elif data.get("activity_level"):
+        # Fallback only when activities are not provided
+        profile.activity_level = data.get("activity_level")
+    
+    # Handle weight goal
+    profile.weight_goal = data.get("weight_goal", profile.weight_goal)
+    
+    profile.budget_level = data.get("budget_level", profile.budget_level)
+    profile.dietary_rules = data.get("dietary_rules", profile.dietary_rules)
+    profile.culture_preference = data.get("culture_preference", profile.culture_preference)
+    profile.preferred_meal_time = data.get("preferred_meal_time", profile.preferred_meal_time)
     profile.save()
 
     return Response(
         {
             "message": "Profile updated successfully",
+            "activity_level": profile.activity_level,
+            "weight_goal": profile.weight_goal,
             "created": created
         },
         status=200
@@ -110,7 +190,12 @@ def get_profile(request, user_id):
         "gender": profile.gender,
         "height_cm": profile.height_cm,
         "weight_kg": profile.weight_kg,
-        "activity_level": profile.activity_level
+        "activities": profile.activities,
+        "activity_level": profile.activity_level,
+        "weight_goal": profile.weight_goal,
+        "budget_level": profile.budget_level,
+        "dietary_rules": profile.dietary_rules,
+        "culture_preference": profile.culture_preference,
     }, status=200)
 
 
@@ -124,31 +209,53 @@ def get_meals(request):
             "id": meal.id,
             "name": meal.name,
             "description": meal.description,
+            "image_url": meal.image_url,
             "calories": meal.calories,
             "protein": meal.protein,
             "carbs": meal.carbs,
             "fats": meal.fats,
             "is_vegetarian": meal.is_vegetarian,
             "is_halal": meal.is_halal,
+            "price_level": meal.price_level,
+            "culture_tags": meal.culture_tags,
+            "meal_time": meal.meal_time,
         })
 
     return Response(data, status=200)
 
 def apply_constraints(meals, profile):
-    filtered = []
+    """
+    Filters meals based on profile constraints:
+    - dietary_rules: comma-separated string (e.g. "halal,no_pork,no_blood")
+    - budget_level: cheap/medium/expensive
+    - culture_preference: a tag like "filipino"
+    """
+    filtered = meals
 
-    for meal in meals:
-        # Vegetarian constraint
-        if profile.activity_level and profile.activity_level == "vegetarian":
-            if not meal.is_vegetarian:
-                continue
+    # --- Dietary rules ---
+    rules_raw = (profile.dietary_rules or "").strip()
+    rules = [r.strip().lower() for r in rules_raw.split(",") if r.strip()]
 
-        # Halal constraint
-        if profile.activity_level and profile.activity_level == "halal":
-            if not meal.is_halal:
-                continue
+    # halal rule
+    if "halal" in rules:
+        filtered = [m for m in filtered if getattr(m, "is_halal", False) is True]
+        filtered = [m for m in filtered if getattr(m, "has_alcohol", False) is False]
+        filtered = [m for m in filtered if getattr(m, "has_pork", False) is False]
 
-        filtered.append(meal)
+    # vegetarian rule
+    if "vegetarian" in rules:
+        filtered = [m for m in filtered if getattr(m, "is_vegetarian", False) is True]
+
+    # no blood (INC-friendly)
+    if "no_blood" in rules:
+        filtered = [m for m in filtered if getattr(m, "has_blood", False) is False]
+
+    # optional generic rules
+    if "no_pork" in rules:
+        filtered = [m for m in filtered if getattr(m, "has_pork", False) is False]
+
+    if "no_alcohol" in rules:
+        filtered = [m for m in filtered if getattr(m, "has_alcohol", False) is False]
 
     return filtered
 
@@ -168,12 +275,16 @@ def get_meals_with_constraints(request, user_id):
             "id": meal.id,
             "name": meal.name,
             "description": meal.description,
+            "image_url": meal.image_url,
             "calories": meal.calories,
             "protein": meal.protein,
             "carbs": meal.carbs,
             "fats": meal.fats,
             "is_vegetarian": meal.is_vegetarian,
             "is_halal": meal.is_halal,
+            "price_level": meal.price_level,
+            "culture_tags": meal.culture_tags,
+            "meal_time": meal.meal_time,
         })
 
     return Response(data, status=200)
@@ -181,19 +292,27 @@ def get_meals_with_constraints(request, user_id):
 def calculate_bmr(profile):
     """
     Mifflin–St Jeor Formula
+    BMR = Basal Metabolic Rate (calories burned at rest)
     """
     if not profile.weight_kg or not profile.height_cm or not profile.age:
-        return None
+        return None, None
 
     if profile.gender == "male":
-        return (10 * profile.weight_kg) + (6.25 * profile.height_cm) - (5 * profile.age) + 5
+        bmr = (10 * profile.weight_kg) + (6.25 * profile.height_cm) - (5 * profile.age) + 5
     else:
-        return (10 * profile.weight_kg) + (6.25 * profile.height_cm) - (5 * profile.age) - 161
+        bmr = (10 * profile.weight_kg) + (6.25 * profile.height_cm) - (5 * profile.age) - 161
+    
+    basis = f"BMR calculated using Mifflin-St Jeor formula (gender: {profile.gender}, age: {profile.age}, height: {profile.height_cm}cm, weight: {profile.weight_kg}kg)"
+    return bmr, basis
 
 
 def calculate_tdee(bmr, activity_level):
+    """
+    TDEE = Total Daily Energy Expenditure
+    Multiplies BMR by activity level factor
+    """
     if bmr is None:
-        return None
+        return None, None
 
     activity_multipliers = {
         "sedentary": 1.2,
@@ -204,7 +323,53 @@ def calculate_tdee(bmr, activity_level):
     }
 
     multiplier = activity_multipliers.get(activity_level, 1.2)
-    return bmr * multiplier
+    tdee = bmr * multiplier
+    
+    basis = f"TDEE = BMR × {multiplier} ({activity_level} activity level)"
+    return tdee, basis
+
+
+def calculate_bmi(height_cm, weight_kg):
+    """
+    BMI = Body Mass Index
+    """
+    if not height_cm or height_cm == 0:
+        return None
+    
+    height_m = height_cm / 100
+    return weight_kg / (height_m * height_m)
+
+
+def get_bmi_category(bmi):
+    """
+    BMI categories according to WHO standards
+    """
+    if bmi < 18.5:
+        return "Underweight"
+    elif bmi < 25:
+        return "Normal weight"
+    elif bmi < 30:
+        return "Overweight"
+    else:
+        return "Obese"
+
+
+def calculate_weight_goal_recommendation(profile):
+    """
+    Recommend weight goal based on current BMI
+    """
+    if not profile.height_cm or not profile.weight_kg:
+        return "maintain", "Insufficient data"
+    
+    bmi = calculate_bmi(profile.height_cm, profile.weight_kg)
+    
+    if bmi < 18.5:
+        return "gain", "You are underweight. Consider gaining weight for better health."
+    elif bmi < 25:
+        return "maintain", "Your weight is in the healthy range. Focus on maintaining it."
+    else:
+        return "lose", "You are overweight or obese. Consider losing weight for better health."
+
 
 @api_view(['GET'])
 def get_nutrition_summary(request, user_id):
@@ -213,18 +378,38 @@ def get_nutrition_summary(request, user_id):
     except UserProfile.DoesNotExist:
         return Response({"error": "Profile not found"}, status=404)
 
-    bmr = calculate_bmr(profile)
-    tdee = calculate_tdee(bmr, profile.activity_level)
+    bmr, bmr_basis = calculate_bmr(profile)
+    tdee, tdee_basis = calculate_tdee(bmr, profile.activity_level)
 
     if bmr is None or tdee is None:
         return Response(
             {"error": "Incomplete profile data for nutrition calculation"},
             status=400
         )
+    
+    bmi = calculate_bmi(profile.height_cm, profile.weight_kg)
+    bmi_category = get_bmi_category(bmi)
+    
+    weight_goal, weight_goal_reason = calculate_weight_goal_recommendation(profile)
+    user_goal = profile.weight_goal or weight_goal
 
     return Response({
         "bmr": round(bmr, 2),
-        "tdee": round(tdee, 2)
+        "bmr_basis": bmr_basis,
+        "tdee": round(tdee, 2),
+        "tdee_basis": tdee_basis,
+        "bmi": round(bmi, 2),
+        "bmi_category": bmi_category,
+        "weight_goal": user_goal,
+        "weight_goal_reason": weight_goal_reason,
+        "activities": profile.activities,
+        "activity_level": profile.activity_level,
+        "demographic_summary": {
+            "age": profile.age,
+            "gender": profile.gender,
+            "height_cm": profile.height_cm,
+            "weight_kg": profile.weight_kg,
+        }
     }, status=200)
 
 def calculate_nutrition_match(meal, tdee):
@@ -233,32 +418,43 @@ def calculate_nutrition_match(meal, tdee):
     Simple distance-based score (0 to 1).
     """
     if not tdee:
-        return 0
+        return 0, ""
 
     difference = abs(tdee - meal.calories)
-    max_difference = tdee  # worst case
+    max_difference = tdee
 
     score = 1 - (difference / max_difference)
-    return max(score, 0)
+    score = max(score, 0)
+    
+    basis = f"Nutrition match: {meal.calories} cal vs your daily need {tdee:.0f} cal (score: {score:.2f})"
+    return score, basis
 
 
 def calculate_preference_match(meal, user):
+    """
+    Score based on user's previous ratings
+    """
     feedback = MealFeedback.objects.filter(user=user, meal=meal).first()
 
     if not feedback:
-        return 0.5  # neutral if no feedback yet
-
-    # Normalize rating (1–5) → (0.2–1.0)
-    return feedback.rating / 5
+        score = 0.5  # neutral if no feedback yet
+        basis = "No previous rating (neutral score)"
+    else:
+        score = feedback.rating / 5
+        basis = f"Your previous rating: {feedback.rating}/5"
+    
+    return score, basis
 
 
 def calculate_final_score(meal, tdee, user):
-    nutrition_score = calculate_nutrition_match(meal, tdee)
-    preference_score = calculate_preference_match(meal, user)
+    nutrition_score, nutrition_basis = calculate_nutrition_match(meal, tdee)
+    preference_score, preference_basis = calculate_preference_match(meal, user)
 
     final_score = (0.5 * nutrition_score) + (0.5 * preference_score)
-    return round(final_score, 3)
-
+    final_score = round(final_score, 3)
+    
+    scoring_basis = f"{nutrition_basis} | {preference_basis} | Base score: {final_score:.3f}"
+    return final_score, scoring_basis
 
 
 @api_view(['GET'])
@@ -269,8 +465,8 @@ def get_recommended_meals(request, user_id):
         return Response({"error": "Profile not found"}, status=404)
 
     # Calculate nutrition needs
-    bmr = calculate_bmr(profile)
-    tdee = calculate_tdee(bmr, profile.activity_level)
+    bmr, bmr_basis = calculate_bmr(profile)
+    tdee, tdee_basis = calculate_tdee(bmr, profile.activity_level)
 
     if bmr is None or tdee is None:
         return Response(
@@ -285,12 +481,35 @@ def get_recommended_meals(request, user_id):
     # Score meals
     scored_meals = []
     for meal in filtered_meals:
-        score = calculate_final_score(meal, tdee, profile.user)
+        score, scoring_basis = calculate_final_score(meal, tdee, profile.user)
+        
+        # Calculate bonuses with reasons
+        culture_bonus_val = culture_bonus(meal, profile)
+        budget_bonus_val = budget_bonus(meal, profile)
+        meal_time_bonus_val = meal_time_bonus(meal, profile)
+        
+        score += culture_bonus_val + budget_bonus_val + meal_time_bonus_val
+
+        if score > 1.0:
+            score = 1.0
+        
+        score = round(score, 3)
 
         feedback = MealFeedback.objects.filter(
             user=profile.user,
             meal=meal
         ).first()
+        
+        # Build detailed recommendation basis
+        basis_parts = [scoring_basis]
+        if culture_bonus_val > 0:
+            basis_parts.append(f"Cultural match (+{culture_bonus_val:.2f})")
+        if budget_bonus_val > 0:
+            basis_parts.append(f"Budget match (+{budget_bonus_val:.2f})")
+        if meal_time_bonus_val > 0:
+            basis_parts.append(f"Meal time match (+{meal_time_bonus_val:.2f})")
+        
+        recommendation_basis = " | ".join(basis_parts)
 
         scored_meals.append({
             "id": meal.id,
@@ -302,13 +521,34 @@ def get_recommended_meals(request, user_id):
             "fats": meal.fats,
             "image_url": meal.image_url,
             "score": score,
-            "user_rating": feedback.rating if feedback else 0
+            "user_rating": feedback.rating if feedback else 0,
+            "meal_time": getattr(meal, "meal_time", None),
+            "price_level": getattr(meal, "price_level", None),
+            "culture_tags": getattr(meal, "culture_tags", None),
+            "has_pork": getattr(meal, "has_pork", False),
+            "has_blood": getattr(meal, "has_blood", False),
+            "has_alcohol": getattr(meal, "has_alcohol", False),
+            "recommendation_basis": recommendation_basis,  # New: detailed basis
         })
 
     # Sort by score (highest first)
     scored_meals.sort(key=lambda x: x["score"], reverse=True)
+    
+    # Add summary info
+    bmi = calculate_bmi(profile.height_cm, profile.weight_kg)
+    bmi_category = get_bmi_category(bmi)
 
-    return Response(scored_meals, status=200)
+    return Response({
+        "meals": scored_meals,
+        "summary": {
+            "tdee": round(tdee, 2),
+            "bmi": round(bmi, 2),
+            "bmi_category": bmi_category,
+            "activity_level": profile.activity_level,
+            "weight_goal": profile.weight_goal or "maintain",
+            "total_recommendations": len(scored_meals),
+        }
+    }, status=200)
 
 
 @api_view(['POST'])
@@ -343,3 +583,34 @@ def submit_feedback(request):
     }, status=201)
 
 
+def culture_bonus(meal, profile):
+    pref = (profile.culture_preference or "").strip().lower()
+    if not pref:
+        return 0.0
+
+    tags = (getattr(meal, "culture_tags", "") or "").lower()
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+
+    return 0.10 if pref in tag_list else 0.0  # +0.10 boost
+
+def budget_bonus(meal, profile):
+    user_budget = (profile.budget_level or "").strip().lower()
+    if not user_budget:
+        return 0.0
+
+    meal_price = (getattr(meal, "price_level", "") or "").strip().lower()
+    if not meal_price:
+        return 0.0
+
+    return 0.08 if meal_price == user_budget else 0.0
+
+def meal_time_bonus(meal, profile):
+    pref = (profile.preferred_meal_time or "").strip().lower()
+    if not pref:
+        return 0.0
+
+    meal_time = (getattr(meal, "meal_time", "") or "").strip().lower()
+    if not meal_time:
+        return 0.0
+
+    return 0.06 if meal_time == pref else 0.0
