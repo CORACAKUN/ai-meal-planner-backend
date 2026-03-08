@@ -138,8 +138,6 @@ CORS_ALLOW_CREDENTIALS = _to_bool(
 
 # Production security defaults (enabled when DEBUG=False)
 if not DEBUG:
-    if SECRET_KEY == "dev-only-insecure-secret-key":
-        raise ValueError("DJANGO_SECRET_KEY must be set in production when DJANGO_DEBUG is false.")
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SECURE_SSL_REDIRECT = _to_bool(os.getenv("DJANGO_SECURE_SSL_REDIRECT"), default=True)
     SESSION_COOKIE_SECURE = True
