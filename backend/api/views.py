@@ -1,5 +1,4 @@
 from django.contrib.auth.models import User
-from django.contrib.auth.hashers import make_password
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.contrib.auth import authenticate
@@ -54,6 +53,10 @@ ALLERGEN_SYNONYMS = {
     "gluten": {"gluten", "wheat", "bread", "flour", "barley", "rye"},
     "peanut": {"peanut", "peanuts", "groundnut"},
     "tree_nut": {"tree nut", "tree nuts", "almond", "cashew", "walnut", "pecan", "pistachio", "hazelnut"},
+    "sesame": {"sesame", "sesame seed", "tahini"},
+    "coconut": {"coconut", "gata", "coconut milk", "niyog"},
+    "corn": {"corn", "maize", "cornstarch"},
+    "sulfite": {"sulfite", "sulfites", "wine", "vinegar"},
 }
 
 MEDICATION_SYNONYMS = {
@@ -61,7 +64,14 @@ MEDICATION_SYNONYMS = {
     "statin": {"statin", "atorvastatin", "simvastatin", "rosuvastatin", "pravastatin", "lovastatin"},
     "metformin": {"metformin", "glucophage"},
     "amlodipine": {"amlodipine", "norvasc"},
+    "allopurinol": {"allopurinol", "zyloprim"},
+    "levothyroxine": {"levothyroxine", "synthroid", "euthyrox"},
+    "maoi": {"maoi", "phenelzine", "tranylcypromine", "isocarboxazid"},
+    "digoxin": {"digoxin", "lanoxin"},
+    "insulin": {"insulin", "novorapid", "lantus", "humalog"},
 }
+
+PHILIPPINE_CULTURE_TAGS = {"filipino", "philippines", "pinoy"}
 
 
 def _tokenize_csv(raw_value):
@@ -101,6 +111,11 @@ def _has_token_conflict(user_raw, meal_raw, synonyms):
     meal_canonical = _canonicalize(meal_tokens, synonyms)
     return bool(user_canonical & meal_canonical)
 
+
+def _is_philippines_meal(meal):
+    culture_tokens = _tokenize_csv(getattr(meal, "culture_tags", "") or "")
+    return bool(culture_tokens & PHILIPPINE_CULTURE_TAGS)
+
 def get_activity_level_from_activities(activities_str):
     """
     Convert comma-separated activities to overall activity level.
@@ -136,11 +151,11 @@ def health_check(request):
 
 @api_view(['POST'])
 def register(request):
-    username = request.data.get('username')
+    username = (request.data.get('username') or '').strip()
     password = request.data.get('password')
-    email = request.data.get('email')
-    first_name = request.data.get('first_name')
-    last_name = request.data.get('last_name')
+    email = (request.data.get('email') or '').strip()
+    first_name = (request.data.get('first_name') or '').strip()
+    last_name = (request.data.get('last_name') or '').strip()
 
     if not all([username, password, email, first_name, last_name]):
         return Response(
@@ -151,6 +166,11 @@ def register(request):
     if User.objects.filter(username=username).exists():
         return Response(
             {"error": "Username already exists"},
+            status=400
+        )
+    if User.objects.filter(email=email).exists():
+        return Response(
+            {"error": "Email already exists"},
             status=400
         )
 
@@ -194,7 +214,10 @@ def login(request):
 @api_view(['PUT'])
 def update_profile(request, user_id):
     data = request.data
-    user = User.objects.get(id=user_id)
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({"error": "User not found"}, status=404)
 
     profile, created = UserProfile.objects.get_or_create(user=user)
 
@@ -217,7 +240,7 @@ def update_profile(request, user_id):
     
     profile.budget_level = data.get("budget_level", profile.budget_level)
     profile.dietary_rules = data.get("dietary_rules", profile.dietary_rules)
-    profile.culture_preference = data.get("culture_preference", profile.culture_preference)
+    profile.culture_preference = "filipino"
     profile.preferred_meal_time = data.get("preferred_meal_time", profile.preferred_meal_time)
     profile.allergies = data.get("allergies", profile.allergies)
     profile.maintenance_medications = data.get("maintenance_medications", profile.maintenance_medications)
@@ -264,7 +287,7 @@ def get_profile(request, user_id):
 
 @api_view(['GET'])
 def get_meals(request):
-    meals = Meal.objects.all()
+    meals = [m for m in Meal.objects.all() if _is_philippines_meal(m)]
 
     data = []
     for meal in meals:
@@ -295,7 +318,7 @@ def apply_constraints(meals, profile):
     - budget_level: cheap/medium/expensive
     - culture_preference: a tag like "filipino"
     """
-    filtered = meals
+    filtered = [m for m in meals if _is_philippines_meal(m)]
 
     # --- Dietary rules ---
     rules_raw = (profile.dietary_rules or "").strip()
@@ -353,7 +376,7 @@ def get_meals_with_constraints(request, user_id):
     except UserProfile.DoesNotExist:
         return Response({"error": "Profile not found"}, status=404)
 
-    meals = Meal.objects.all()
+    meals = [m for m in Meal.objects.all() if _is_philippines_meal(m)]
     allowed_meals = apply_constraints(meals, profile)
 
     data = []
@@ -564,7 +587,7 @@ def get_recommended_meals(request, user_id):
         )
 
     # Get meals and apply constraints
-    meals = Meal.objects.all()
+    meals = [m for m in Meal.objects.all() if _is_philippines_meal(m)]
     filtered_meals = apply_constraints(meals, profile)
 
     # Score meals
@@ -648,7 +671,13 @@ def submit_feedback(request):
 
     user_id = data.get('user_id')
     meal_id = data.get('meal_id')
-    rating = data.get('rating')
+    try:
+        rating = int(data.get('rating'))
+    except (TypeError, ValueError):
+        return Response(
+            {"error": "Rating must be an integer between 1 and 5"},
+            status=400
+        )
 
     if rating is None or rating < 1 or rating > 5:
         return Response(

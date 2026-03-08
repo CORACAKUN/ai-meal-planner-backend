@@ -4,17 +4,18 @@ Django settings for backend project.
 
 import os
 from pathlib import Path
+from typing import Optional
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-def _to_bool(value: str, default: bool = False) -> bool:
+def _to_bool(value: Optional[str], default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _to_list(value: str, default: list[str]) -> list[str]:
+def _to_list(value: Optional[str], default: list[str]) -> list[str]:
     if not value:
         return default
     return [item.strip() for item in value.split(",") if item.strip()]
@@ -44,12 +45,15 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",
     "rest_framework",
     "api",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -119,13 +123,33 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+CORS_ALLOWED_ORIGINS = _to_list(
+    os.getenv("DJANGO_CORS_ALLOWED_ORIGINS"),
+    [],
+)
+CORS_ALLOW_CREDENTIALS = _to_bool(
+    os.getenv("DJANGO_CORS_ALLOW_CREDENTIALS"),
+    default=False,
+)
 
 # Production security defaults (enabled when DEBUG=False)
 if not DEBUG:
+    if SECRET_KEY == "dev-only-insecure-secret-key":
+        raise ValueError("DJANGO_SECRET_KEY must be set in production when DJANGO_DEBUG is false.")
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SECURE_SSL_REDIRECT = _to_bool(os.getenv("DJANGO_SECURE_SSL_REDIRECT"), default=True)
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    CSRF_COOKIE_HTTPONLY = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_BROWSER_XSS_FILTER = True
+    X_FRAME_OPTIONS = "DENY"
+    SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
     SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_SECURE_HSTS_SECONDS", "31536000"))
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
