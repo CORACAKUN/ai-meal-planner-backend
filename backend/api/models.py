@@ -23,6 +23,9 @@ class UserProfile(models.Model):
     dietary_rules = models.TextField(null=True, blank=True)  # e.g. "halal,no_blood,no_pork"
     culture_preference = models.CharField(max_length=100, null=True, blank=True)  # e.g. "filipino"
     preferred_meal_time = models.CharField(max_length=20, null=True, blank=True)  # breakfast/lunch/dinner/snack
+    allergies = models.TextField(null=True, blank=True)
+    maintenance_medications = models.TextField(null=True, blank=True)
+
     def __str__(self):
         return self.user.username
 
@@ -48,6 +51,8 @@ class Meal(models.Model):
     has_pork = models.BooleanField(default=False)
     has_blood = models.BooleanField(default=False)
     has_alcohol = models.BooleanField(default=False)
+    allergen_tags = models.CharField(max_length=300, null=True, blank=True)  # e.g. "egg,milk,fish,peanut"
+    medication_warnings = models.CharField(max_length=300, null=True, blank=True)  # e.g. "warfarin,statin"
     
     image_url = models.URLField(blank=True, null=True)
 

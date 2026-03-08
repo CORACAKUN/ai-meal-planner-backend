@@ -43,6 +43,64 @@ ACTIVITY_LEVELS = {
     "construction_work": "very_active",
 }
 
+IGNORED_PROFILE_TOKENS = {"", "none", "n/a", "na", "nil", "no", "no meds", "no medication"}
+
+ALLERGEN_SYNONYMS = {
+    "soy": {"soy", "soya", "soybean", "soy sauce", "tofu", "edamame"},
+    "fish": {"fish", "tuna", "tilapia", "salmon", "sardine", "anchovy"},
+    "shellfish": {"shellfish", "shrimp", "prawn", "crab", "lobster", "mussel", "clam"},
+    "egg": {"egg", "eggs", "egg yolk", "egg white", "mayo", "mayonnaise"},
+    "milk": {"milk", "dairy", "cheese", "butter", "cream", "yogurt", "lactose"},
+    "gluten": {"gluten", "wheat", "bread", "flour", "barley", "rye"},
+    "peanut": {"peanut", "peanuts", "groundnut"},
+    "tree_nut": {"tree nut", "tree nuts", "almond", "cashew", "walnut", "pecan", "pistachio", "hazelnut"},
+}
+
+MEDICATION_SYNONYMS = {
+    "warfarin": {"warfarin", "coumadin"},
+    "statin": {"statin", "atorvastatin", "simvastatin", "rosuvastatin", "pravastatin", "lovastatin"},
+    "metformin": {"metformin", "glucophage"},
+    "amlodipine": {"amlodipine", "norvasc"},
+}
+
+
+def _tokenize_csv(raw_value):
+    text = (raw_value or "").strip().lower()
+    if not text:
+        return set()
+    for sep in [";", "\n", "|"]:
+        text = text.replace(sep, ",")
+    return {token.strip() for token in text.split(",") if token.strip()}
+
+
+def _token_matches(a, b):
+    return a == b or a in b or b in a
+
+
+def _canonicalize(tokens, synonyms):
+    canonical = set()
+    for token in tokens:
+        for key, alias_set in synonyms.items():
+            if any(_token_matches(token, alias) for alias in alias_set):
+                canonical.add(key)
+    return canonical
+
+
+def _has_token_conflict(user_raw, meal_raw, synonyms):
+    user_tokens = {t for t in _tokenize_csv(user_raw) if t not in IGNORED_PROFILE_TOKENS}
+    meal_tokens = {t for t in _tokenize_csv(meal_raw) if t not in {"", "none", "n/a", "na"}}
+    if not user_tokens or not meal_tokens:
+        return False
+
+    # Direct token match (including contains checks like "soy" vs "soy sauce")
+    if any(_token_matches(u, m) for u in user_tokens for m in meal_tokens):
+        return True
+
+    # Canonical match via synonym groups
+    user_canonical = _canonicalize(user_tokens, synonyms)
+    meal_canonical = _canonicalize(meal_tokens, synonyms)
+    return bool(user_canonical & meal_canonical)
+
 def get_activity_level_from_activities(activities_str):
     """
     Convert comma-separated activities to overall activity level.
@@ -161,6 +219,8 @@ def update_profile(request, user_id):
     profile.dietary_rules = data.get("dietary_rules", profile.dietary_rules)
     profile.culture_preference = data.get("culture_preference", profile.culture_preference)
     profile.preferred_meal_time = data.get("preferred_meal_time", profile.preferred_meal_time)
+    profile.allergies = data.get("allergies", profile.allergies)
+    profile.maintenance_medications = data.get("maintenance_medications", profile.maintenance_medications)
     profile.save()
 
     return Response(
@@ -196,6 +256,9 @@ def get_profile(request, user_id):
         "budget_level": profile.budget_level,
         "dietary_rules": profile.dietary_rules,
         "culture_preference": profile.culture_preference,
+        "preferred_meal_time": profile.preferred_meal_time,
+        "allergies": profile.allergies,
+        "maintenance_medications": profile.maintenance_medications,
     }, status=200)
 
 
@@ -219,6 +282,8 @@ def get_meals(request):
             "price_level": meal.price_level,
             "culture_tags": meal.culture_tags,
             "meal_time": meal.meal_time,
+            "allergen_tags": getattr(meal, "allergen_tags", None),
+            "medication_warnings": getattr(meal, "medication_warnings", None),
         })
 
     return Response(data, status=200)
@@ -257,6 +322,28 @@ def apply_constraints(meals, profile):
     if "no_alcohol" in rules:
         filtered = [m for m in filtered if getattr(m, "has_alcohol", False) is False]
 
+    # --- Allergy safety filter ---
+    user_allergies_raw = getattr(profile, "allergies", "") or ""
+    if user_allergies_raw.strip():
+        safe_meals = []
+        for meal in filtered:
+            meal_allergens_raw = getattr(meal, "allergen_tags", "") or ""
+            if not _has_token_conflict(user_allergies_raw, meal_allergens_raw, ALLERGEN_SYNONYMS):
+                safe_meals.append(meal)
+        filtered = safe_meals
+
+    # --- Medication caution filter ---
+    # If meal warnings overlap with maintenance medication tokens or synonyms,
+    # exclude the meal for safety.
+    user_meds_raw = getattr(profile, "maintenance_medications", "") or ""
+    if user_meds_raw.strip():
+        safe_meals = []
+        for meal in filtered:
+            meal_warnings_raw = getattr(meal, "medication_warnings", "") or ""
+            if not _has_token_conflict(user_meds_raw, meal_warnings_raw, MEDICATION_SYNONYMS):
+                safe_meals.append(meal)
+        filtered = safe_meals
+
     return filtered
 
 @api_view(['GET'])
@@ -285,6 +372,8 @@ def get_meals_with_constraints(request, user_id):
             "price_level": meal.price_level,
             "culture_tags": meal.culture_tags,
             "meal_time": meal.meal_time,
+            "allergen_tags": getattr(meal, "allergen_tags", None),
+            "medication_warnings": getattr(meal, "medication_warnings", None),
         })
 
     return Response(data, status=200)
@@ -528,6 +617,8 @@ def get_recommended_meals(request, user_id):
             "has_pork": getattr(meal, "has_pork", False),
             "has_blood": getattr(meal, "has_blood", False),
             "has_alcohol": getattr(meal, "has_alcohol", False),
+            "allergen_tags": getattr(meal, "allergen_tags", None),
+            "medication_warnings": getattr(meal, "medication_warnings", None),
             "recommendation_basis": recommendation_basis,  # New: detailed basis
         })
 

@@ -28,6 +28,10 @@ ALLOWED_HOSTS = _to_list(
     ["127.0.0.1", "localhost"],
 )
 
+# In local development, requests may come from emulator/phone LAN IPs.
+if DEBUG and not os.getenv("DJANGO_ALLOWED_HOSTS"):
+    ALLOWED_HOSTS = ["*"]
+
 CSRF_TRUSTED_ORIGINS = _to_list(
     os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS"),
     [],

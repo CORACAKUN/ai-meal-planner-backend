@@ -18,6 +18,8 @@ class Command(BaseCommand):
                 "meal_time": "dinner",
                 "price_level": "cheap",
                 "culture_tags": "filipino",
+                "allergen_tags": "soy",
+                "medication_warnings": "none",
             },
             {
                 "name": "Vegetable Stir Fry",
@@ -31,6 +33,8 @@ class Command(BaseCommand):
                 "meal_time": "lunch",
                 "price_level": "cheap",
                 "culture_tags": "chinese",
+                "allergen_tags": "soy",
+                "medication_warnings": "warfarin",
             },
             {
                 "name": "Grilled Fish",
@@ -44,6 +48,8 @@ class Command(BaseCommand):
                 "meal_time": "dinner",
                 "price_level": "medium",
                 "culture_tags": "filipino",
+                "allergen_tags": "fish",
+                "medication_warnings": "none",
             },
             {
                 "name": "Egg Omelette",
@@ -57,6 +63,8 @@ class Command(BaseCommand):
                 "meal_time": "breakfast",
                 "price_level": "cheap",
                 "culture_tags": "filipino",
+                "allergen_tags": "egg",
+                "medication_warnings": "none",
             },
             {
                 "name": "Oatmeal with Fruits",
@@ -70,6 +78,8 @@ class Command(BaseCommand):
                 "meal_time": "breakfast",
                 "price_level": "cheap",
                 "culture_tags": "american",
+                "allergen_tags": "gluten",
+                "medication_warnings": "none",
             },
             {
                 "name": "Beef Steak",
@@ -83,6 +93,8 @@ class Command(BaseCommand):
                 "meal_time": "dinner",
                 "price_level": "expensive",
                 "culture_tags": "american",
+                "allergen_tags": "none",
+                "medication_warnings": "none",
             },
             {
                 "name": "Tuna Sandwich",
@@ -96,6 +108,8 @@ class Command(BaseCommand):
                 "meal_time": "lunch",
                 "price_level": "medium",
                 "culture_tags": "american",
+                "allergen_tags": "fish,gluten",
+                "medication_warnings": "none",
             },
             {
                 "name": "Fruit Smoothie",
@@ -109,6 +123,8 @@ class Command(BaseCommand):
                 "meal_time": "breakfast",
                 "price_level": "cheap",
                 "culture_tags": "american",
+                "allergen_tags": "none",
+                "medication_warnings": "none",
             },
             {
                 "name": "Grilled Chicken Breast",
@@ -122,6 +138,8 @@ class Command(BaseCommand):
                 "meal_time": "lunch",
                 "price_level": "medium",
                 "culture_tags": "american",
+                "allergen_tags": "none",
+                "medication_warnings": "none",
             },
             {
                 "name": "Vegetable Salad",
@@ -135,6 +153,8 @@ class Command(BaseCommand):
                 "meal_time": "lunch",
                 "price_level": "cheap",
                 "culture_tags": "american",
+                "allergen_tags": "none",
+                "medication_warnings": "warfarin",
             },
         ]
 
