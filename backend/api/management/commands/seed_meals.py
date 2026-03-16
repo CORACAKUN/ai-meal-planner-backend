@@ -23,7 +23,7 @@ class Command(BaseCommand):
                 "meal_time": "dinner",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "soy,sulfite",
+                "allergen_tags": "soy,sulfite,chicken,garlic,vinegar",
                 "medication_warnings": "none",
             },
             {
@@ -42,7 +42,7 @@ class Command(BaseCommand):
                 "meal_time": "lunch",
                 "price_level": "medium",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "fish",
+                "allergen_tags": "fish,tomato,radish,kangkong,tamarind",
                 "medication_warnings": "warfarin",
             },
             {
@@ -61,7 +61,7 @@ class Command(BaseCommand):
                 "meal_time": "lunch",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "none",
+                "allergen_tags": "mung bean,malunggay,garlic,onion",
                 "medication_warnings": "warfarin",
             },
             {
@@ -80,7 +80,7 @@ class Command(BaseCommand):
                 "meal_time": "breakfast",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "egg",
+                "allergen_tags": "egg,eggplant,garlic,onion",
                 "medication_warnings": "none",
             },
             {
@@ -99,7 +99,7 @@ class Command(BaseCommand):
                 "meal_time": "dinner",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "none",
+                "allergen_tags": "chicken,papaya,ginger",
                 "medication_warnings": "warfarin",
             },
             {
@@ -118,7 +118,7 @@ class Command(BaseCommand):
                 "meal_time": "dinner",
                 "price_level": "medium",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "none",
+                "allergen_tags": "pork,tomato,liver,potato",
                 "medication_warnings": "allopurinol",
             },
             {
@@ -137,7 +137,7 @@ class Command(BaseCommand):
                 "meal_time": "lunch",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "fish,shellfish",
+                "allergen_tags": "fish,shellfish,bagoong,eggplant,bitter melon,squash,okra",
                 "medication_warnings": "warfarin,maoi",
             },
             {
@@ -156,7 +156,7 @@ class Command(BaseCommand):
                 "meal_time": "dinner",
                 "price_level": "medium",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "fish,sulfite",
+                "allergen_tags": "fish,sulfite,milkfish,vinegar,garlic",
                 "medication_warnings": "allopurinol",
             },
             {
@@ -175,7 +175,7 @@ class Command(BaseCommand):
                 "meal_time": "lunch",
                 "price_level": "medium",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "coconut,shellfish",
+                "allergen_tags": "coconut,shellfish,taro,shrimp",
                 "medication_warnings": "warfarin",
             },
             {
@@ -194,7 +194,7 @@ class Command(BaseCommand):
                 "meal_time": "snack",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "gluten,soy",
+                "allergen_tags": "gluten,soy,cabbage,carrot,wrapper",
                 "medication_warnings": "none",
             },
             {
@@ -213,7 +213,7 @@ class Command(BaseCommand):
                 "meal_time": "breakfast",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "gluten,peanut",
+                "allergen_tags": "gluten,peanut,wheat,bread",
                 "medication_warnings": "levothyroxine",
             },
             {
@@ -232,7 +232,7 @@ class Command(BaseCommand):
                 "meal_time": "snack",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "none",
+                "allergen_tags": "banana",
                 "medication_warnings": "metformin,insulin",
             },
             {
@@ -251,7 +251,7 @@ class Command(BaseCommand):
                 "meal_time": "breakfast",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "none",
+                "allergen_tags": "chicken,ginger,rice",
                 "medication_warnings": "none",
             },
             {
@@ -270,7 +270,7 @@ class Command(BaseCommand):
                 "meal_time": "breakfast",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "egg",
+                "allergen_tags": "egg,rice",
                 "medication_warnings": "none",
             },
             {
@@ -289,7 +289,7 @@ class Command(BaseCommand):
                 "meal_time": "breakfast",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "milk",
+                "allergen_tags": "milk,cocoa",
                 "medication_warnings": "metformin,insulin",
             },
             {
@@ -308,7 +308,7 @@ class Command(BaseCommand):
                 "meal_time": "dinner",
                 "price_level": "medium",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "coconut,shellfish",
+                "allergen_tags": "pork,coconut,shellfish,shrimp,chili",
                 "medication_warnings": "allopurinol",
             },
             {
@@ -327,7 +327,7 @@ class Command(BaseCommand):
                 "meal_time": "lunch",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "coconut,shellfish",
+                "allergen_tags": "coconut,shellfish,squash,string bean,shrimp",
                 "medication_warnings": "warfarin",
             },
             {
@@ -346,7 +346,7 @@ class Command(BaseCommand):
                 "meal_time": "breakfast",
                 "price_level": "medium",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "fish,sulfite",
+                "allergen_tags": "fish,sulfite,milkfish,vinegar",
                 "medication_warnings": "allopurinol",
             },
             {
@@ -365,7 +365,7 @@ class Command(BaseCommand):
                 "meal_time": "dinner",
                 "price_level": "medium",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "fish,soy",
+                "allergen_tags": "fish,soy,tilapia,calamansi",
                 "medication_warnings": "allopurinol",
             },
             {
@@ -384,7 +384,7 @@ class Command(BaseCommand):
                 "meal_time": "lunch",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "soy",
+                "allergen_tags": "soy,chicken,rice noodle,cabbage,carrot",
                 "medication_warnings": "none",
             },
             {
@@ -403,7 +403,7 @@ class Command(BaseCommand):
                 "meal_time": "dinner",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "soy",
+                "allergen_tags": "soy,chicken,glass noodle,carrot,cabbage",
                 "medication_warnings": "none",
             },
             {
@@ -422,7 +422,7 @@ class Command(BaseCommand):
                 "meal_time": "snack",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "shellfish,egg,gluten",
+                "allergen_tags": "shellfish,egg,gluten,shrimp,bean sprout,flour",
                 "medication_warnings": "allopurinol",
             },
             {
@@ -441,7 +441,7 @@ class Command(BaseCommand):
                 "meal_time": "lunch",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "soy",
+                "allergen_tags": "soy,tofu,carrot,cabbage",
                 "medication_warnings": "levothyroxine",
             },
             {
@@ -460,14 +460,14 @@ class Command(BaseCommand):
                 "meal_time": "lunch",
                 "price_level": "cheap",
                 "culture_tags": "filipino,philippines,pinoy",
-                "allergen_tags": "soy,sulfite",
+                "allergen_tags": "soy,sulfite,kangkong,vinegar",
                 "medication_warnings": "warfarin",
             },
         ]
 
         created_count = 0
         for meal in meals:
-            _, created = Meal.objects.get_or_create(
+            _, created = Meal.objects.update_or_create(
                 name=meal["name"],
                 defaults=meal,
             )
@@ -476,6 +476,6 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"Philippine meals seeded successfully. Added {created_count} new meals without modifying existing ones."
+                f"Philippine meals seeded successfully. Added {created_count} new meals and synced existing meals by name."
             )
         )
