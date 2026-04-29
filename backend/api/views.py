@@ -1,9 +1,12 @@
 from django.contrib.auth.models import User
+from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.contrib.auth import authenticate
-from .models import MealFeedback, UserProfile
+from .models import MealFeedback, UserProfile, UserMealPlan
 from .models import Meal
+from datetime import timedelta
 
 
 # Activity to activity level mapping
@@ -73,6 +76,9 @@ MEDICATION_SYNONYMS = {
 
 PHILIPPINE_CULTURE_TAGS = {"filipino", "philippines", "pinoy"}
 
+MEAL_TIME_OPTIONS = {"breakfast", "lunch", "dinner", "snack"}
+PRICE_LEVEL_OPTIONS = {"cheap", "medium", "expensive"}
+
 
 def _tokenize_csv(raw_value):
     text = (raw_value or "").strip().lower()
@@ -115,6 +121,107 @@ def _has_token_conflict(user_raw, meal_raw, synonyms):
 def _is_philippines_meal(meal):
     culture_tokens = _tokenize_csv(getattr(meal, "culture_tags", "") or "")
     return bool(culture_tokens & PHILIPPINE_CULTURE_TAGS)
+
+
+def _parse_bool(value, default=False):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _serialize_user(user):
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "is_superuser": user.is_superuser,
+        "is_staff": user.is_staff,
+        "is_active": user.is_active,
+        "date_joined": user.date_joined.isoformat() if user.date_joined else None,
+    }
+
+
+def _serialize_meal(meal):
+    return {
+        "id": meal.id,
+        "name": meal.name,
+        "description": meal.description,
+        "ingredients": meal.ingredients,
+        "calories": meal.calories,
+        "protein": meal.protein,
+        "carbs": meal.carbs,
+        "fats": meal.fats,
+        "is_vegetarian": meal.is_vegetarian,
+        "is_halal": meal.is_halal,
+        "meal_time": meal.meal_time,
+        "price_level": meal.price_level,
+        "culture_tags": meal.culture_tags,
+        "has_pork": meal.has_pork,
+        "has_blood": meal.has_blood,
+        "has_alcohol": meal.has_alcohol,
+        "allergen_tags": meal.allergen_tags,
+        "medication_warnings": meal.medication_warnings,
+        "image_url": meal.image_url,
+    }
+
+
+def _serialize_feedback(feedback):
+    return {
+        "id": feedback.id,
+        "user_id": feedback.user_id,
+        "username": feedback.user.username,
+        "meal_id": feedback.meal_id,
+        "meal_name": feedback.meal.name,
+        "rating": feedback.rating,
+        "created_at": feedback.created_at.isoformat() if feedback.created_at else None,
+    }
+
+
+def _serialize_meal_plan_item(item):
+    return {
+        "id": item.id,
+        "user_id": item.user_id,
+        "meal_id": item.meal_id,
+        "scheduled_date": item.scheduled_date.isoformat(),
+        "meal_time": item.meal_time,
+        "is_eaten": item.is_eaten,
+        "eaten_at": item.eaten_at.isoformat() if item.eaten_at else None,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+        "meal": _serialize_meal(item.meal),
+    }
+
+
+def _get_admin_actor(request):
+    admin_user_id = request.query_params.get("admin_user_id") or request.data.get("admin_user_id")
+    try:
+        admin_user_id = int(admin_user_id)
+    except (TypeError, ValueError):
+        return None, Response({"error": "admin_user_id is required"}, status=400)
+
+    try:
+        admin_user = User.objects.get(id=admin_user_id)
+    except User.DoesNotExist:
+        return None, Response({"error": "Admin user not found"}, status=404)
+
+    if not admin_user.is_superuser:
+        return None, Response({"error": "Admin access required"}, status=403)
+
+    return admin_user, None
+
+
+def _validate_choice(raw_value, allowed_values):
+    value = (raw_value or "").strip().lower()
+    if not value:
+        return None
+    if value not in allowed_values:
+        raise ValueError(f"Invalid value: {raw_value}")
+    return value
 
 def get_activity_level_from_activities(activities_str):
     """
@@ -208,7 +315,8 @@ def login(request):
     return Response({
         "message": "Login successful",
         "user_id": user.id,
-        "username": user.username
+        "username": user.username,
+        "is_admin": user.is_superuser,
     }, status=200)
 
 @api_view(['PUT'])
@@ -238,9 +346,7 @@ def update_profile(request, user_id):
     # Handle weight goal
     profile.weight_goal = data.get("weight_goal", profile.weight_goal)
     
-    profile.budget_level = data.get("budget_level", profile.budget_level)
     profile.dietary_rules = data.get("dietary_rules", profile.dietary_rules)
-    profile.culture_preference = "filipino"
     profile.preferred_meal_time = data.get("preferred_meal_time", profile.preferred_meal_time)
     profile.allergies = data.get("allergies", profile.allergies)
     profile.maintenance_medications = data.get("maintenance_medications", profile.maintenance_medications)
@@ -276,9 +382,7 @@ def get_profile(request, user_id):
         "activities": profile.activities,
         "activity_level": profile.activity_level,
         "weight_goal": profile.weight_goal,
-        "budget_level": profile.budget_level,
         "dietary_rules": profile.dietary_rules,
-        "culture_preference": profile.culture_preference,
         "preferred_meal_time": profile.preferred_meal_time,
         "allergies": profile.allergies,
         "maintenance_medications": profile.maintenance_medications,
@@ -295,6 +399,7 @@ def get_meals(request):
             "id": meal.id,
             "name": meal.name,
             "description": meal.description,
+            "ingredients": meal.ingredients,
             "image_url": meal.image_url,
             "calories": meal.calories,
             "protein": meal.protein,
@@ -315,8 +420,6 @@ def apply_constraints(meals, profile):
     """
     Filters meals based on profile constraints:
     - dietary_rules: comma-separated string (e.g. "halal,no_pork,no_blood")
-    - budget_level: cheap/medium/expensive
-    - culture_preference: a tag like "filipino"
     """
     filtered = [m for m in meals if _is_philippines_meal(m)]
 
@@ -385,6 +488,7 @@ def get_meals_with_constraints(request, user_id):
             "id": meal.id,
             "name": meal.name,
             "description": meal.description,
+            "ingredients": meal.ingredients,
             "image_url": meal.image_url,
             "calories": meal.calories,
             "protein": meal.protein,
@@ -483,6 +587,38 @@ def calculate_weight_goal_recommendation(profile):
         return "lose", "You are overweight or obese. Consider losing weight for better health."
 
 
+def get_today_meal_plan_totals(user):
+    today = timezone.localdate()
+    eaten_entries = (
+        UserMealPlan.objects.select_related("meal")
+        .filter(user=user, scheduled_date=today, is_eaten=True)
+    )
+
+    totals = {
+        "meal_count": 0,
+        "calories": 0.0,
+        "protein": 0.0,
+        "carbs": 0.0,
+        "fats": 0.0,
+    }
+
+    for entry in eaten_entries:
+        totals["meal_count"] += 1
+        totals["calories"] += entry.meal.calories or 0.0
+        totals["protein"] += entry.meal.protein or 0.0
+        totals["carbs"] += entry.meal.carbs or 0.0
+        totals["fats"] += entry.meal.fats or 0.0
+
+    return {
+        "date": today.isoformat(),
+        "meal_count": totals["meal_count"],
+        "calories": round(totals["calories"], 2),
+        "protein": round(totals["protein"], 2),
+        "carbs": round(totals["carbs"], 2),
+        "fats": round(totals["fats"], 2),
+    }
+
+
 @api_view(['GET'])
 def get_nutrition_summary(request, user_id):
     try:
@@ -504,6 +640,7 @@ def get_nutrition_summary(request, user_id):
     
     weight_goal, weight_goal_reason = calculate_weight_goal_recommendation(profile)
     user_goal = profile.weight_goal or weight_goal
+    eaten_today = get_today_meal_plan_totals(profile.user)
 
     return Response({
         "bmr": round(bmr, 2),
@@ -516,6 +653,7 @@ def get_nutrition_summary(request, user_id):
         "weight_goal_reason": weight_goal_reason,
         "activities": profile.activities,
         "activity_level": profile.activity_level,
+        "eaten_today": eaten_today,
         "demographic_summary": {
             "age": profile.age,
             "gender": profile.gender,
@@ -596,11 +734,9 @@ def get_recommended_meals(request, user_id):
         score, scoring_basis = calculate_final_score(meal, tdee, profile.user)
         
         # Calculate bonuses with reasons
-        culture_bonus_val = culture_bonus(meal, profile)
-        budget_bonus_val = budget_bonus(meal, profile)
         meal_time_bonus_val = meal_time_bonus(meal, profile)
         
-        score += culture_bonus_val + budget_bonus_val + meal_time_bonus_val
+        score += meal_time_bonus_val
 
         if score > 1.0:
             score = 1.0
@@ -614,10 +750,6 @@ def get_recommended_meals(request, user_id):
         
         # Build detailed recommendation basis
         basis_parts = [scoring_basis]
-        if culture_bonus_val > 0:
-            basis_parts.append(f"Cultural match (+{culture_bonus_val:.2f})")
-        if budget_bonus_val > 0:
-            basis_parts.append(f"Budget match (+{budget_bonus_val:.2f})")
         if meal_time_bonus_val > 0:
             basis_parts.append(f"Meal time match (+{meal_time_bonus_val:.2f})")
         
@@ -703,27 +835,6 @@ def submit_feedback(request):
     }, status=201)
 
 
-def culture_bonus(meal, profile):
-    pref = (profile.culture_preference or "").strip().lower()
-    if not pref:
-        return 0.0
-
-    tags = (getattr(meal, "culture_tags", "") or "").lower()
-    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-
-    return 0.10 if pref in tag_list else 0.0  # +0.10 boost
-
-def budget_bonus(meal, profile):
-    user_budget = (profile.budget_level or "").strip().lower()
-    if not user_budget:
-        return 0.0
-
-    meal_price = (getattr(meal, "price_level", "") or "").strip().lower()
-    if not meal_price:
-        return 0.0
-
-    return 0.08 if meal_price == user_budget else 0.0
-
 def meal_time_bonus(meal, profile):
     pref = (profile.preferred_meal_time or "").strip().lower()
     if not pref:
@@ -734,3 +845,325 @@ def meal_time_bonus(meal, profile):
         return 0.0
 
     return 0.06 if meal_time == pref else 0.0
+
+
+@api_view(["GET", "POST"])
+def user_meal_plan(request, user_id):
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({"error": "User not found"}, status=404)
+
+    if request.method == "POST":
+        data = request.data
+        meal_id = data.get("meal_id")
+        date_str = (data.get("scheduled_date") or "").strip()
+        meal_time = (data.get("meal_time") or "").strip().lower() or None
+
+        if not meal_id:
+            return Response({"error": "meal_id is required"}, status=400)
+        if not date_str:
+            return Response({"error": "scheduled_date is required"}, status=400)
+
+        scheduled_date = parse_date(date_str)
+        if scheduled_date is None:
+            return Response({"error": "scheduled_date must be YYYY-MM-DD"}, status=400)
+
+        if meal_time and meal_time not in MEAL_TIME_OPTIONS:
+            return Response({"error": "Invalid meal_time"}, status=400)
+
+        try:
+            meal = Meal.objects.get(id=meal_id)
+        except Meal.DoesNotExist:
+            return Response({"error": "Meal not found"}, status=404)
+
+        entry = UserMealPlan.objects.create(
+            user=user,
+            meal=meal,
+            scheduled_date=scheduled_date,
+            meal_time=meal_time or (meal.meal_time or None),
+        )
+
+        return Response(
+            {
+                "message": "Meal added to plan",
+                "entry": _serialize_meal_plan_item(entry),
+            },
+            status=201,
+        )
+
+    scope = (request.query_params.get("scope") or "daily").strip().lower()
+    anchor_date_str = (request.query_params.get("date") or "").strip()
+    anchor_date = parse_date(anchor_date_str) if anchor_date_str else None
+    if anchor_date is None:
+        return Response({"error": "date query parameter is required in YYYY-MM-DD format"}, status=400)
+
+    if scope not in {"daily", "weekly"}:
+        return Response({"error": "scope must be daily or weekly"}, status=400)
+
+    if scope == "daily":
+        start_date = end_date = anchor_date
+    else:
+        start_date = anchor_date - timedelta(days=anchor_date.weekday())
+        end_date = start_date + timedelta(days=6)
+
+    entries = (
+        UserMealPlan.objects.select_related("meal")
+        .filter(user=user, scheduled_date__gte=start_date, scheduled_date__lte=end_date)
+        .order_by("scheduled_date", "meal_time", "id")
+    )
+
+    return Response(
+        {
+            "scope": scope,
+            "anchor_date": anchor_date.isoformat(),
+            "range_start": start_date.isoformat(),
+            "range_end": end_date.isoformat(),
+            "entries": [_serialize_meal_plan_item(item) for item in entries],
+        },
+        status=200,
+    )
+
+
+@api_view(["DELETE"])
+def delete_meal_plan_entry(request, user_id, entry_id):
+    try:
+        entry = UserMealPlan.objects.get(id=entry_id, user_id=user_id)
+    except UserMealPlan.DoesNotExist:
+        return Response({"error": "Meal plan entry not found"}, status=404)
+
+    entry.delete()
+    return Response({"message": "Meal removed from plan"}, status=200)
+
+
+@api_view(["PATCH"])
+def update_meal_plan_entry_status(request, user_id, entry_id):
+    try:
+        entry = UserMealPlan.objects.select_related("meal").get(id=entry_id, user_id=user_id)
+    except UserMealPlan.DoesNotExist:
+        return Response({"error": "Meal plan entry not found"}, status=404)
+
+    is_eaten = _parse_bool(request.data.get("is_eaten"), default=entry.is_eaten)
+    entry.is_eaten = is_eaten
+    entry.eaten_at = timezone.now() if is_eaten else None
+    entry.save(update_fields=["is_eaten", "eaten_at"])
+
+    return Response(
+        {
+            "message": "Meal status updated",
+            "entry": _serialize_meal_plan_item(entry),
+        },
+        status=200,
+    )
+
+
+@api_view(["GET", "POST"])
+def admin_users(request):
+    admin_user, error = _get_admin_actor(request)
+    if error:
+        return error
+
+    if request.method == "GET":
+        users = User.objects.all().order_by("id")
+        return Response({"users": [_serialize_user(user) for user in users]}, status=200)
+
+    data = request.data
+    username = (data.get("username") or "").strip()
+    password = data.get("password")
+    email = (data.get("email") or "").strip()
+    first_name = (data.get("first_name") or "").strip()
+    last_name = (data.get("last_name") or "").strip()
+
+    if not username or not password:
+        return Response({"error": "Username and password are required"}, status=400)
+
+    if User.objects.filter(username=username).exists():
+        return Response({"error": "Username already exists"}, status=400)
+
+    if email and User.objects.filter(email=email).exists():
+        return Response({"error": "Email already exists"}, status=400)
+
+    user = User.objects.create_user(
+        username=username,
+        password=password,
+        email=email,
+        first_name=first_name,
+        last_name=last_name,
+    )
+    user.is_staff = _parse_bool(data.get("is_staff"), default=False)
+    user.is_superuser = _parse_bool(data.get("is_superuser"), default=False)
+    if user.is_superuser:
+        user.is_staff = True
+    user.is_active = _parse_bool(data.get("is_active"), default=True)
+    user.save()
+
+    return Response(
+        {
+            "message": f"User {user.username} created successfully",
+            "user": _serialize_user(user),
+            "acted_by": admin_user.username,
+        },
+        status=201,
+    )
+
+
+@api_view(["PUT", "DELETE"])
+def admin_user_detail(request, user_id):
+    admin_user, error = _get_admin_actor(request)
+    if error:
+        return error
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return Response({"error": "User not found"}, status=404)
+
+    if request.method == "DELETE":
+        if user.id == admin_user.id:
+            return Response({"error": "You cannot delete the active admin account"}, status=400)
+        username = user.username
+        user.delete()
+        return Response(
+            {"message": f"User {username} deleted successfully", "acted_by": admin_user.username},
+            status=200,
+        )
+
+    data = request.data
+    username = (data.get("username") or user.username).strip()
+    email = (data.get("email") or "").strip()
+
+    if User.objects.exclude(id=user.id).filter(username=username).exists():
+        return Response({"error": "Username already exists"}, status=400)
+
+    if email and User.objects.exclude(id=user.id).filter(email=email).exists():
+        return Response({"error": "Email already exists"}, status=400)
+
+    user.username = username
+    user.email = email
+    user.first_name = (data.get("first_name") or "").strip()
+    user.last_name = (data.get("last_name") or "").strip()
+    user.is_active = _parse_bool(data.get("is_active"), default=user.is_active)
+    user.is_staff = _parse_bool(data.get("is_staff"), default=user.is_staff)
+    user.is_superuser = _parse_bool(data.get("is_superuser"), default=user.is_superuser)
+    if user.is_superuser:
+        user.is_staff = True
+
+    password = data.get("password")
+    if password:
+        user.set_password(password)
+
+    user.save()
+    return Response(
+        {
+            "message": f"User {user.username} updated successfully",
+            "user": _serialize_user(user),
+            "acted_by": admin_user.username,
+        },
+        status=200,
+    )
+
+
+@api_view(["GET", "POST"])
+def admin_meals(request):
+    _, error = _get_admin_actor(request)
+    if error:
+        return error
+
+    if request.method == "GET":
+        meals = Meal.objects.all().order_by("name")
+        return Response({"meals": [_serialize_meal(meal) for meal in meals]}, status=200)
+
+    data = request.data
+    name = (data.get("name") or "").strip()
+    if not name:
+        return Response({"error": "Meal name is required"}, status=400)
+
+    try:
+        meal = Meal.objects.create(
+            name=name,
+            description=(data.get("description") or "").strip(),
+            ingredients=(data.get("ingredients") or "").strip() or None,
+            calories=float(data.get("calories") or 0),
+            protein=float(data.get("protein") or 0),
+            carbs=float(data.get("carbs") or 0),
+            fats=float(data.get("fats") or 0),
+            is_vegetarian=_parse_bool(data.get("is_vegetarian")),
+            is_halal=_parse_bool(data.get("is_halal")),
+            meal_time=_validate_choice(data.get("meal_time"), MEAL_TIME_OPTIONS),
+            price_level=_validate_choice(data.get("price_level"), PRICE_LEVEL_OPTIONS),
+            culture_tags=(data.get("culture_tags") or "").strip() or None,
+            has_pork=_parse_bool(data.get("has_pork")),
+            has_blood=_parse_bool(data.get("has_blood")),
+            has_alcohol=_parse_bool(data.get("has_alcohol")),
+            allergen_tags=(data.get("allergen_tags") or "").strip() or None,
+            medication_warnings=(data.get("medication_warnings") or "").strip() or None,
+            image_url=(data.get("image_url") or "").strip() or None,
+        )
+    except ValueError:
+        return Response({"error": "Numeric and choice fields must be valid"}, status=400)
+
+    return Response({"message": "Meal created successfully", "meal": _serialize_meal(meal)}, status=201)
+
+
+@api_view(["PUT", "DELETE"])
+def admin_meal_detail(request, meal_id):
+    _, error = _get_admin_actor(request)
+    if error:
+        return error
+
+    try:
+        meal = Meal.objects.get(id=meal_id)
+    except Meal.DoesNotExist:
+        return Response({"error": "Meal not found"}, status=404)
+
+    if request.method == "DELETE":
+        meal_name = meal.name
+        meal.delete()
+        return Response({"message": f"Meal {meal_name} deleted successfully"}, status=200)
+
+    data = request.data
+
+    try:
+        meal.name = (data.get("name") or meal.name).strip()
+        meal.description = (data.get("description") or "").strip()
+        meal.ingredients = (data.get("ingredients") or "").strip() or None
+        meal.calories = float(data.get("calories") if data.get("calories") is not None else meal.calories)
+        meal.protein = float(data.get("protein") if data.get("protein") is not None else meal.protein)
+        meal.carbs = float(data.get("carbs") if data.get("carbs") is not None else meal.carbs)
+        meal.fats = float(data.get("fats") if data.get("fats") is not None else meal.fats)
+        meal.is_vegetarian = _parse_bool(data.get("is_vegetarian"), default=meal.is_vegetarian)
+        meal.is_halal = _parse_bool(data.get("is_halal"), default=meal.is_halal)
+        meal.meal_time = _validate_choice(data.get("meal_time"), MEAL_TIME_OPTIONS)
+        meal.price_level = _validate_choice(data.get("price_level"), PRICE_LEVEL_OPTIONS)
+        meal.culture_tags = (data.get("culture_tags") or "").strip() or None
+        meal.has_pork = _parse_bool(data.get("has_pork"), default=meal.has_pork)
+        meal.has_blood = _parse_bool(data.get("has_blood"), default=meal.has_blood)
+        meal.has_alcohol = _parse_bool(data.get("has_alcohol"), default=meal.has_alcohol)
+        meal.allergen_tags = (data.get("allergen_tags") or "").strip() or None
+        meal.medication_warnings = (data.get("medication_warnings") or "").strip() or None
+        meal.image_url = (data.get("image_url") or "").strip() or None
+    except ValueError:
+        return Response({"error": "Numeric and choice fields must be valid"}, status=400)
+
+    if not meal.name:
+        return Response({"error": "Meal name is required"}, status=400)
+
+    meal.save()
+    return Response({"message": "Meal updated successfully", "meal": _serialize_meal(meal)}, status=200)
+
+
+@api_view(["GET"])
+def admin_feedback(request):
+    _, error = _get_admin_actor(request)
+    if error:
+        return error
+
+    feedback_items = (
+        MealFeedback.objects.select_related("user", "meal")
+        .all()
+        .order_by("-created_at")
+    )
+    return Response(
+        {"feedback": [_serialize_feedback(item) for item in feedback_items]},
+        status=200,
+    )

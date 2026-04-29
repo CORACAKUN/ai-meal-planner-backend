@@ -18,10 +18,8 @@ class UserProfile(models.Model):
     # Weight goal: lose/maintain/gain
     weight_goal = models.CharField(max_length=20, null=True, blank=True)
 
-    # 01 - Budget + Religion/Culture preferences (backend-first)
-    budget_level = models.CharField(max_length=20, null=True, blank=True)  # cheap/medium/expensive
+    # Preference and safety filters
     dietary_rules = models.TextField(null=True, blank=True)  # e.g. "halal,no_blood,no_pork"
-    culture_preference = models.CharField(max_length=100, null=True, blank=True)  # e.g. "filipino"
     preferred_meal_time = models.CharField(max_length=20, null=True, blank=True)  # breakfast/lunch/dinner/snack
     allergies = models.TextField(null=True, blank=True)
     maintenance_medications = models.TextField(null=True, blank=True)
@@ -33,6 +31,7 @@ class UserProfile(models.Model):
 class Meal(models.Model):
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
+    ingredients = models.TextField(blank=True, null=True)
 
     calories = models.FloatField()
     protein = models.FloatField()
@@ -68,3 +67,20 @@ class MealFeedback(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.meal.name} ({self.rating})"
+
+
+class UserMealPlan(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    meal = models.ForeignKey(Meal, on_delete=models.CASCADE)
+    scheduled_date = models.DateField()
+    meal_time = models.CharField(max_length=20, null=True, blank=True)
+    is_eaten = models.BooleanField(default=False)
+    eaten_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["scheduled_date", "meal_time", "id"]
+
+    def __str__(self):
+        label = self.meal_time or "meal"
+        return f"{self.user.username} - {self.meal.name} on {self.scheduled_date} ({label})"
