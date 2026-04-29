@@ -1,26 +1,43 @@
 from django.urls import path
+
 from .views import (
-    health_check,
-    register,
-    login,
-    update_profile,
-    get_profile,
+    admin_feedback,
+    admin_meal_detail,
+    admin_meals,
+    admin_user_detail,
+    admin_users,
+    delete_meal_plan_entry,
     get_meals,
     get_meals_with_constraints,
     get_nutrition_summary,
+    get_profile,
     get_recommended_meals,
-    submit_feedback
+    health_check,
+    login,
+    register,
+    submit_feedback,
+    update_meal_plan_entry_status,
+    user_meal_plan,
+    update_profile,
 )
 
 urlpatterns = [
-    path('health/', health_check),
-    path('register/', register),
-    path('login/', login),
-    path('profile/<int:user_id>/', update_profile),             # PUT
-    path('profile/<int:user_id>/get/', get_profile),            # GET
-    path('meals/', get_meals),                                   # GET
-    path('meals/<int:user_id>/filtered/', get_meals_with_constraints),  # GET
-    path('nutrition/<int:user_id>/', get_nutrition_summary),    # GET
-    path('recommend/<int:user_id>/', get_recommended_meals),    # GET
-    path('feedback/', submit_feedback),                          # POST ⭐
+    path("health/", health_check),
+    path("register/", register),
+    path("login/", login),
+    path("profile/<int:user_id>/", update_profile),
+    path("profile/<int:user_id>/get/", get_profile),
+    path("meals/", get_meals),
+    path("meals/<int:user_id>/filtered/", get_meals_with_constraints),
+    path("nutrition/<int:user_id>/", get_nutrition_summary),
+    path("recommend/<int:user_id>/", get_recommended_meals),
+    path("feedback/", submit_feedback),
+    path("planner/<int:user_id>/", user_meal_plan),
+    path("planner/<int:user_id>/<int:entry_id>/", delete_meal_plan_entry),
+    path("planner/<int:user_id>/<int:entry_id>/status/", update_meal_plan_entry_status),
+    path("admin/users/", admin_users),
+    path("admin/users/<int:user_id>/", admin_user_detail),
+    path("admin/meals/", admin_meals),
+    path("admin/meals/<int:meal_id>/", admin_meal_detail),
+    path("admin/feedback/", admin_feedback),
 ]
