@@ -1,4 +1,5 @@
 from django.contrib.auth.models import User
+from django.contrib.auth.hashers import is_password_usable
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework.decorators import api_view
@@ -263,10 +264,17 @@ def register(request):
     email = (request.data.get('email') or '').strip()
     first_name = (request.data.get('first_name') or '').strip()
     last_name = (request.data.get('last_name') or '').strip()
+    role = (request.data.get('role') or 'user').strip().lower()
 
     if not all([username, password, email, first_name, last_name]):
         return Response(
             {"error": "All fields are required"},
+            status=400
+        )
+
+    if role not in {"user", "admin"}:
+        return Response(
+            {"error": "Invalid role"},
             status=400
         )
 
@@ -289,10 +297,17 @@ def register(request):
         last_name=last_name,
     )
 
+    if role == "admin":
+        user.is_staff = True
+        user.is_superuser = True
+        user.save(update_fields=["is_staff", "is_superuser"])
+
     return Response(
         {
             "message": "User registered successfully",
-            "user_id": user.id
+            "user_id": user.id,
+            "role": role,
+            "is_admin": user.is_superuser,
         },
         status=201
     )
@@ -300,16 +315,36 @@ def register(request):
 @api_view(['POST'])
 def login(request):
     data = request.data
+    username = (data.get('username') or '').strip()
+    password = data.get('password')
 
     user = authenticate(
-        username=data.get('username'),
-        password=data.get('password')
+        username=username,
+        password=password
     )
 
+    if user is None and username:
+        matching_user = User.objects.filter(username__iexact=username).first()
+        if matching_user and matching_user.username != username:
+            user = authenticate(username=matching_user.username, password=password)
+
     if user is None:
+        existing_user = User.objects.filter(username__iexact=username).first()
+        if existing_user and not is_password_usable(existing_user.password):
+            return Response(
+                {"error": "Account password needs to be reset by an administrator"},
+                status=401
+            )
+
         return Response(
             {"error": "Invalid username or password"},
             status=401
+        )
+
+    if not user.is_active:
+        return Response(
+            {"error": "Account is inactive"},
+            status=403
         )
 
     return Response({
