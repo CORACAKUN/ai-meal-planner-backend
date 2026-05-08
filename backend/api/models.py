@@ -53,7 +53,7 @@ class Meal(models.Model):
     allergen_tags = models.CharField(max_length=300, null=True, blank=True)  # e.g. "egg,milk,fish,peanut"
     medication_warnings = models.CharField(max_length=300, null=True, blank=True)  # e.g. "warfarin,statin"
     
-    image_url = models.URLField(blank=True, null=True)
+    image_url = models.URLField(max_length=500, blank=True, null=True)
 
     def __str__(self):
         return self.name
