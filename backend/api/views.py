@@ -8,6 +8,7 @@ from django.contrib.auth import authenticate
 from .models import MealFeedback, UserProfile, UserMealPlan
 from .models import Meal
 from datetime import timedelta
+import random
 
 
 # Activity to activity level mapping
@@ -79,6 +80,17 @@ PHILIPPINE_CULTURE_TAGS = {"filipino", "philippines", "pinoy"}
 
 MEAL_TIME_OPTIONS = {"breakfast", "lunch", "dinner", "snack"}
 PRICE_LEVEL_OPTIONS = {"cheap", "medium", "expensive"}
+MEAL_TIME_CALORIE_SHARE = {
+    "breakfast": 0.25,
+    "lunch": 0.35,
+    "dinner": 0.30,
+    "snack": 0.10,
+}
+WEIGHT_GOAL_CALORIE_ADJUSTMENTS = {
+    "lose": -450,
+    "maintain": 0,
+    "gain": 300,
+}
 
 
 def _tokenize_csv(raw_value):
@@ -622,6 +634,39 @@ def calculate_weight_goal_recommendation(profile):
         return "lose", "You are overweight or obese. Consider losing weight for better health."
 
 
+def get_effective_weight_goal(profile):
+    explicit_goal = (profile.weight_goal or "").strip().lower()
+    if explicit_goal in WEIGHT_GOAL_CALORIE_ADJUSTMENTS:
+        return explicit_goal
+    inferred_goal, _ = calculate_weight_goal_recommendation(profile)
+    return inferred_goal
+
+
+def calculate_daily_calorie_target(profile, tdee):
+    if tdee is None:
+        return None, None
+
+    goal = get_effective_weight_goal(profile)
+    adjustment = WEIGHT_GOAL_CALORIE_ADJUSTMENTS.get(goal, 0)
+    target = max(1200, tdee + adjustment)
+    basis = f"Daily target: {tdee:.0f} TDEE with {adjustment:+} calorie adjustment for {goal} goal"
+    return target, basis
+
+
+def calculate_meal_calorie_target(meal, daily_target, profile):
+    if daily_target is None:
+        return None, None
+
+    meal_time = (getattr(meal, "meal_time", "") or "").strip().lower()
+    if meal_time not in MEAL_TIME_CALORIE_SHARE:
+        meal_time = (profile.preferred_meal_time or "").strip().lower()
+
+    share = MEAL_TIME_CALORIE_SHARE.get(meal_time, 0.30)
+    target = daily_target * share
+    basis = f"Meal target: {target:.0f} calories for {meal_time or 'general'} meal slot"
+    return target, basis
+
+
 def get_today_meal_plan_totals(user):
     today = timezone.localdate()
     eaten_entries = (
@@ -697,21 +742,20 @@ def get_nutrition_summary(request, user_id):
         }
     }, status=200)
 
-def calculate_nutrition_match(meal, tdee):
+def calculate_nutrition_match(meal, meal_target):
     """
-    Scores how close a meal's calories are to user's needs.
-    Simple distance-based score (0 to 1).
+    Scores how close a meal is to the target calories for its meal slot.
     """
-    if not tdee:
+    if not meal_target:
         return 0, ""
 
-    difference = abs(tdee - meal.calories)
-    max_difference = tdee
+    difference = abs(meal_target - meal.calories)
+    max_difference = max(meal_target, 1)
 
     score = 1 - (difference / max_difference)
     score = max(score, 0)
-    
-    basis = f"Nutrition match: {meal.calories} cal vs your daily need {tdee:.0f} cal (score: {score:.2f})"
+
+    basis = f"Calorie match: {meal.calories} cal vs target {meal_target:.0f} cal (score: {score:.2f})"
     return score, basis
 
 
@@ -731,15 +775,108 @@ def calculate_preference_match(meal, user):
     return score, basis
 
 
-def calculate_final_score(meal, tdee, user):
-    nutrition_score, nutrition_basis = calculate_nutrition_match(meal, tdee)
-    preference_score, preference_basis = calculate_preference_match(meal, user)
+def calculate_goal_alignment(meal, profile):
+    goal = get_effective_weight_goal(profile)
+    calories = meal.calories or 0
+    protein_density = ((meal.protein or 0) * 4 / calories) if calories else 0
+    carb_density = ((meal.carbs or 0) * 4 / calories) if calories else 0
+    fat_density = ((meal.fats or 0) * 9 / calories) if calories else 0
 
-    final_score = (0.5 * nutrition_score) + (0.5 * preference_score)
+    if goal == "lose":
+        lower_calorie_score = max(0.0, min(1.0, 1 - max(calories - 420, 0) / 380))
+        protein_score = min(protein_density / 0.22, 1.0)
+        score = (0.6 * lower_calorie_score) + (0.4 * protein_score)
+        basis = f"Lose-goal fit: lighter calories + protein density (score: {score:.2f})"
+        return score, basis
+
+    if goal == "gain":
+        energy_score = min(calories / 650, 1.0)
+        protein_score = min((meal.protein or 0) / 30, 1.0)
+        carb_score = min(carb_density / 0.45, 1.0)
+        score = (0.45 * energy_score) + (0.30 * protein_score) + (0.25 * carb_score)
+        basis = f"Gain-goal fit: higher energy + protein + carbs (score: {score:.2f})"
+        return score, basis
+
+    protein_score = min(protein_density / 0.20, 1.0)
+    carb_score = max(0.0, 1 - abs(carb_density - 0.45) / 0.35)
+    fat_score = max(0.0, 1 - abs(fat_density - 0.30) / 0.25)
+    score = (0.4 * protein_score) + (0.3 * carb_score) + (0.3 * fat_score)
+    basis = f"Maintain-goal fit: balanced macros + protein (score: {score:.2f})"
+    return score, basis
+
+
+def calculate_activity_alignment(meal, profile):
+    activity_level = (profile.activity_level or "").strip().lower()
+    calorie_ranges = {
+        "sedentary": (180, 420),
+        "light": (220, 500),
+        "moderate": (260, 620),
+        "active": (320, 760),
+        "very_active": (380, 900),
+    }
+    low, high = calorie_ranges.get(activity_level, (220, 550))
+    calories = meal.calories or 0
+
+    if low <= calories <= high:
+        return 1.0, f"Activity fit: {activity_level or 'general'} calorie range match (score: 1.00)"
+
+    distance = low - calories if calories < low else calories - high
+    span = max(high - low, 1)
+    score = max(0.0, 1 - (distance / span))
+    basis = f"Activity fit: {activity_level or 'general'} calorie range match (score: {score:.2f})"
+    return score, basis
+
+
+def calculate_final_score(meal, profile, user, daily_target):
+    meal_target, meal_target_basis = calculate_meal_calorie_target(meal, daily_target, profile)
+    nutrition_score, nutrition_basis = calculate_nutrition_match(meal, meal_target)
+    preference_score, preference_basis = calculate_preference_match(meal, user)
+    goal_score, goal_basis = calculate_goal_alignment(meal, profile)
+    activity_score, activity_basis = calculate_activity_alignment(meal, profile)
+
+    final_score = (
+        (0.45 * nutrition_score)
+        + (0.25 * goal_score)
+        + (0.15 * activity_score)
+        + (0.15 * preference_score)
+    )
     final_score = round(final_score, 3)
-    
-    scoring_basis = f"{nutrition_basis} | {preference_basis} | Base score: {final_score:.3f}"
+
+    scoring_basis = (
+        f"{meal_target_basis} | {nutrition_basis} | {goal_basis} | "
+        f"{activity_basis} | {preference_basis} | Base score: {final_score:.3f}"
+    )
     return final_score, scoring_basis
+
+
+def randomize_similar_recommendations(scored_meals, score_window=0.04):
+    if not scored_meals:
+        return scored_meals
+
+    randomized = []
+    index = 0
+
+    while index < len(scored_meals):
+        band = [scored_meals[index]]
+        band_anchor = scored_meals[index]["score"]
+        index += 1
+
+        while index < len(scored_meals):
+            next_score = scored_meals[index]["score"]
+            if band_anchor - next_score > score_window:
+                break
+            band.append(scored_meals[index])
+            index += 1
+
+        if len(band) > 1:
+            random.shuffle(band)
+            for item in band:
+                item["recommendation_basis"] = (
+                    f"{item['recommendation_basis']} | Variety rotation among similar-score meals"
+                )
+        randomized.extend(band)
+
+    return randomized
 
 
 @api_view(['GET'])
@@ -752,8 +889,9 @@ def get_recommended_meals(request, user_id):
     # Calculate nutrition needs
     bmr, bmr_basis = calculate_bmr(profile)
     tdee, tdee_basis = calculate_tdee(bmr, profile.activity_level)
+    daily_target, daily_target_basis = calculate_daily_calorie_target(profile, tdee)
 
-    if bmr is None or tdee is None:
+    if bmr is None or tdee is None or daily_target is None:
         return Response(
             {"error": "Incomplete profile data for recommendation"},
             status=400
@@ -766,7 +904,7 @@ def get_recommended_meals(request, user_id):
     # Score meals
     scored_meals = []
     for meal in filtered_meals:
-        score, scoring_basis = calculate_final_score(meal, tdee, profile.user)
+        score, scoring_basis = calculate_final_score(meal, profile, profile.user, daily_target)
         
         # Calculate bonuses with reasons
         meal_time_bonus_val = meal_time_bonus(meal, profile)
@@ -787,6 +925,7 @@ def get_recommended_meals(request, user_id):
         basis_parts = [scoring_basis]
         if meal_time_bonus_val > 0:
             basis_parts.append(f"Meal time match (+{meal_time_bonus_val:.2f})")
+        basis_parts.append(daily_target_basis)
         
         recommendation_basis = " | ".join(basis_parts)
 
@@ -814,6 +953,7 @@ def get_recommended_meals(request, user_id):
 
     # Sort by score (highest first)
     scored_meals.sort(key=lambda x: x["score"], reverse=True)
+    scored_meals = randomize_similar_recommendations(scored_meals)
     
     # Add summary info
     bmi = calculate_bmi(profile.height_cm, profile.weight_kg)
@@ -823,10 +963,11 @@ def get_recommended_meals(request, user_id):
         "meals": scored_meals,
         "summary": {
             "tdee": round(tdee, 2),
+            "daily_target": round(daily_target, 2),
             "bmi": round(bmi, 2),
             "bmi_category": bmi_category,
             "activity_level": profile.activity_level,
-            "weight_goal": profile.weight_goal or "maintain",
+            "weight_goal": get_effective_weight_goal(profile),
             "total_recommendations": len(scored_meals),
         }
     }, status=200)
