@@ -5,6 +5,7 @@ Django settings for backend project.
 import os
 from pathlib import Path
 from typing import Optional
+from urllib.parse import parse_qs, urlparse, unquote
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -81,8 +82,36 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "backend.wsgi.application"
 
+def _database_from_url(database_url: str) -> dict:
+    parsed = urlparse(database_url)
+    if parsed.scheme not in {"postgres", "postgresql"}:
+        raise ValueError("DATABASE_URL must use postgres:// or postgresql://")
+
+    query = parse_qs(parsed.query)
+    options = {}
+    sslmode = query.get("sslmode", [""])[0]
+    if sslmode:
+        options["sslmode"] = sslmode
+
+    config = {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": unquote(parsed.path.lstrip("/")),
+        "USER": unquote(parsed.username or ""),
+        "PASSWORD": unquote(parsed.password or ""),
+        "HOST": parsed.hostname or "",
+        "PORT": str(parsed.port or 5432),
+    }
+    if options:
+        config["OPTIONS"] = options
+    return config
+
+
 # Database config (SQLite default, PostgreSQL via env in production)
-if os.getenv("POSTGRES_DB"):
+if os.getenv("DATABASE_URL"):
+    DATABASES = {
+        "default": _database_from_url(os.environ["DATABASE_URL"]),
+    }
+elif os.getenv("POSTGRES_DB"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
